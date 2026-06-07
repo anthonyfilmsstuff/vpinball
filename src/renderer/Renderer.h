@@ -4,6 +4,7 @@
 
 #include "gpuprofiler.h"
 #include "math/ModelViewProj.h"
+#include "renderer/ViewSetup.h"
 #include "renderer/Renderable.h"
 #include "renderer/RenderDevice.h"
 #include "renderer/Texture.h"
@@ -61,6 +62,23 @@ public:
    ShadeMode GetShadeMode() const { return m_shadeMode; };
 
    void RenderFrame();
+
+   // Secondary "third-person" / spectator pass: re-renders the live scene from a fixed, independent
+   // camera (m_spectatorView) into the given output window. Lets a VR or cabinet player expose a
+   // stable, non-nauseating view for streaming or bystanders. Heavier than a normal frame as it is a
+   // full second scene render. See THIRDPERSON_DESIGN.md.
+   void RenderSpectatorView(VPX::Window* outWnd);
+   RenderTarget* RenderSpectatorToBuffer(int w, int h); // Render the spectator scene + tonemap into m_spectatorTonemapRT (sized w x h), return it
+   void DrawSpectatorPresentQuad(RenderTarget* buf, float ndcX0, float ndcX1); // Present a spectator buffer (layer 0) into an NDC x-range of the current output target
+   void ApplySpectatorPreset(int preset); // Configure m_spectatorView from a built-in camera preset (0=Angled, 1=Overhead, 2=Low)
+   void AdjustSpectatorCam(int inclSteps, int fovSteps, int panXSteps, int panYSteps, int distSteps); // Live per-keypress nudge of the spectator camera (distSteps = dolly nearer/farther)
+   bool LoadSpectatorCam(const string& filePath); // Load a per-table spectator camera sidecar file; returns true if applied
+   void SaveSpectatorCam(const string& filePath) const; // Save the current spectator camera to a per-table sidecar file
+   ViewSetup m_spectatorView;
+   bool m_spectatorEnabled = true; // Runtime toggle (F7) for the spectator pass
+   bool m_spectatorSplit = false; // VR only (F5): show the mirrored eye beside the spectator camera in the preview window
+   int m_spectatorPreset = 0; // Active spectator camera preset (cycled with F8): 0=Angled, 1=Overhead, 2=Low (all legacy auto-fit)
+   int m_spectatorFrameSkip = 0; // Throttle (F6): render the spectator view every (skip+1) frames; 0 = every frame
 
    enum ColorSpace
    {
@@ -283,6 +301,9 @@ private:
    RenderTarget* m_pOffscreenVRLeft = nullptr;
    RenderTarget* m_pOffscreenVRRight = nullptr;
 
+   RenderTarget* m_spectatorRT = nullptr; // Offscreen HDR scene target for the spectator pass (lazily sized to its output window)
+   RenderTarget* m_spectatorTonemapRT = nullptr; // Display-format target for the spectator tonemap when the device is stereo (VR); layer 0 is then presented
+
    PinTable* const m_table;
 
    ModelViewProj m_mvp; // Store the active Model / View / Projection
@@ -297,6 +318,7 @@ private:
    
    bool m_noBackdrop = false;
    unsigned int m_visibilityMask = 0xFFFF;
+   bool m_spectatorPass = false; // True while rendering the spectator view: makes RenderItem use the fixed spectator camera instead of the head-tracked / main camera
 
    vector<IRenderable*> m_renderableToInit;
 

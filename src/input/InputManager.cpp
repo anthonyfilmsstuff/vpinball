@@ -909,6 +909,104 @@ void InputManager::CreateInputActions()
          }
       }));
 
+   AddAction(std::make_unique<InputAction>(this, "ToggleSpectator"s, "Toggle Spectator View"s, keyMapping(SDL_SCANCODE_F7),
+      [this](const InputAction&, bool, bool isPressed)
+      {
+         if (m_player->m_liveUI->IsInGameUIOpened() || !isPressed || m_player->m_renderer == nullptr
+            || (m_player->m_spectatorWnd == nullptr && m_player->m_vrDevice == nullptr))
+            return;
+         Renderer* const r = m_player->m_renderer;
+         r->m_spectatorEnabled = !r->m_spectatorEnabled;
+         if (m_player->m_spectatorWnd != nullptr)
+            m_player->m_spectatorWnd->Show(r->m_spectatorEnabled);
+         m_player->m_liveUI->PushNotification(r->m_spectatorEnabled ? "Spectator view enabled"s : "Spectator view disabled"s, 2000);
+      }));
+
+   AddAction(std::make_unique<InputAction>(this, "CycleSpectatorCam"s, "Cycle Spectator Camera"s, keyMapping(SDL_SCANCODE_F8),
+      [this](const InputAction&, bool, bool isPressed)
+      {
+         if (m_player->m_liveUI->IsInGameUIOpened() || !isPressed || m_player->m_renderer == nullptr
+            || (m_player->m_spectatorWnd == nullptr && m_player->m_vrDevice == nullptr))
+            return;
+         Renderer* const r = m_player->m_renderer;
+         r->m_spectatorPreset = (r->m_spectatorPreset + 1) % 3;
+         r->ApplySpectatorPreset(r->m_spectatorPreset);
+         static const char* const names[3] = { "Angled", "Overhead", "Low" };
+         m_player->m_liveUI->PushNotification("Spectator camera: "s + names[r->m_spectatorPreset], 2000);
+      }));
+
+   AddAction(std::make_unique<InputAction>(this, "SpectatorSplit"s, "Spectator Split (eye + camera)"s, keyMapping(SDL_SCANCODE_F5),
+      [this](const InputAction&, bool, bool isPressed)
+      {
+         if (m_player->m_liveUI->IsInGameUIOpened() || !isPressed || m_player->m_renderer == nullptr
+            || (m_player->m_spectatorWnd == nullptr && m_player->m_vrDevice == nullptr))
+            return;
+         Renderer* const r = m_player->m_renderer;
+         r->m_spectatorSplit = !r->m_spectatorSplit;
+         m_player->m_liveUI->PushNotification(r->m_spectatorSplit ? "Spectator split: mirrored eye + camera"s : "Spectator split off"s, 2000);
+      }));
+
+   AddAction(std::make_unique<InputAction>(this, "SpectatorThrottle"s, "Spectator View Throttle"s, keyMapping(SDL_SCANCODE_F6),
+      [this](const InputAction&, bool, bool isPressed)
+      {
+         if (m_player->m_liveUI->IsInGameUIOpened() || !isPressed || m_player->m_renderer == nullptr
+            || (m_player->m_spectatorWnd == nullptr && m_player->m_vrDevice == nullptr))
+            return;
+         Renderer* const r = m_player->m_renderer;
+         r->m_spectatorFrameSkip = (r->m_spectatorFrameSkip + 1) % 3;
+         m_player->m_liveUI->PushNotification("Spectator update: "s + (r->m_spectatorFrameSkip == 0 ? "every frame"s : r->m_spectatorFrameSkip == 1 ? "every 2nd frame"s : "every 3rd frame"s), 2000);
+      }));
+
+   // Live per-table spectator camera adjustment (only active when a spectator output exists).
+   auto addSpectatorAdjust = [this, &keyMapping](const string& id, const string& label, SDL_Scancode key, int incl, int fov, int panx, int pany, int dist)
+   {
+      AddAction(std::make_unique<InputAction>(this, id, label, keyMapping(key),
+         [this, incl, fov, panx, pany, dist](const InputAction&, bool, bool isPressed)
+         {
+            if (!isPressed || m_player->m_renderer == nullptr || m_player->m_liveUI->IsInGameUIOpened()
+               || (m_player->m_spectatorWnd == nullptr && m_player->m_vrDevice == nullptr))
+               return;
+            m_player->m_renderer->AdjustSpectatorCam(incl, fov, panx, pany, dist);
+         }));
+   };
+   addSpectatorAdjust("SpectatorPitchUp"s,   "Spectator Camera Pitch Up"s,   SDL_SCANCODE_RIGHTBRACKET, +1, 0, 0, 0, 0);
+   addSpectatorAdjust("SpectatorPitchDown"s, "Spectator Camera Pitch Down"s, SDL_SCANCODE_LEFTBRACKET,  -1, 0, 0, 0, 0);
+   addSpectatorAdjust("SpectatorZoomIn"s,    "Spectator Camera Zoom In"s,    SDL_SCANCODE_KP_PLUS,       0, -1, 0, 0, 0);
+   addSpectatorAdjust("SpectatorZoomOut"s,   "Spectator Camera Zoom Out"s,   SDL_SCANCODE_KP_MINUS,      0, +1, 0, 0, 0);
+   addSpectatorAdjust("SpectatorPanUp"s,     "Spectator Camera Pan Up"s,     SDL_SCANCODE_UP,            0, 0, 0, +1, 0);
+   addSpectatorAdjust("SpectatorPanDown"s,   "Spectator Camera Pan Down"s,   SDL_SCANCODE_DOWN,          0, 0, 0, -1, 0);
+   addSpectatorAdjust("SpectatorPanLeft"s,   "Spectator Camera Pan Left"s,   SDL_SCANCODE_LEFT,          0, 0, -1, 0, 0);
+   addSpectatorAdjust("SpectatorPanRight"s,  "Spectator Camera Pan Right"s,  SDL_SCANCODE_RIGHT,         0, 0, +1, 0, 0);
+   addSpectatorAdjust("SpectatorCloser"s,    "Spectator Camera Closer"s,     SDL_SCANCODE_COMMA,         0, 0, 0, 0, -1);
+   addSpectatorAdjust("SpectatorFarther"s,   "Spectator Camera Farther"s,    SDL_SCANCODE_PERIOD,        0, 0, 0, 0, +1);
+
+   AddAction(std::make_unique<InputAction>(this, "SpectatorSave"s, "Save Spectator Camera (this table)"s, keyMapping(SDL_SCANCODE_F9),
+      [this](const InputAction&, bool, bool isPressed)
+      {
+         if (!isPressed || m_player->m_renderer == nullptr || m_player->m_liveUI->IsInGameUIOpened()
+            || (m_player->m_spectatorWnd == nullptr && m_player->m_vrDevice == nullptr))
+            return;
+         const string f = m_player->GetSpectatorCamFilePath();
+         if (f.empty())
+         {
+            m_player->m_liveUI->PushNotification("Cannot save spectator camera: table is not saved to disk"s, 2500);
+            return;
+         }
+         m_player->m_renderer->SaveSpectatorCam(f);
+         m_player->m_liveUI->PushNotification("Spectator camera saved for this table"s, 2000);
+      }));
+
+   AddAction(std::make_unique<InputAction>(this, "SpectatorReset"s, "Reset Spectator Camera to Preset"s, keyMapping(SDL_SCANCODE_F4),
+      [this](const InputAction&, bool, bool isPressed)
+      {
+         if (!isPressed || m_player->m_renderer == nullptr || m_player->m_liveUI->IsInGameUIOpened()
+            || (m_player->m_spectatorWnd == nullptr && m_player->m_vrDevice == nullptr))
+            return;
+         Renderer* const r = m_player->m_renderer;
+         r->ApplySpectatorPreset(r->m_spectatorPreset);
+         m_player->m_liveUI->PushNotification("Spectator camera reset to preset"s, 2000);
+      }));
+
    auto addJoyCustomAction = [this](const string& settingId, const string& label)
    {
       auto newAction = AddAction(std::make_unique<InputAction>(this, settingId, label, ""s,

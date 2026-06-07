@@ -50,6 +50,57 @@ static int GetPixelFormatDepth(SDL_PixelFormat format)
    }
 }
 
+// Explicit-geometry borderless desktop window, used for the spectator / third-person live view.
+// Bypasses the per-window settings system (display/size/position) so it does not need a registered
+// settings slot; it simply opens centered on the default display at the requested size.
+Window::Window(const string& title, const int width, const int height)
+   : m_windowId(VPXWindowId::VPXWINDOW_Spectator)
+   , m_isVR(false)
+{
+   m_fullscreen = false;
+
+   const DisplayConfig selectedDisplay = GetDisplayConfig(""s); // empty => default/primary display
+   m_screenwidth = selectedDisplay.width;
+   m_screenheight = selectedDisplay.height;
+   m_width = min(width, m_screenwidth);
+   m_height = min(height, m_screenheight);
+   m_refreshrate = selectedDisplay.refreshrate > 0.f ? selectedDisplay.refreshrate : 60.f;
+   m_bitdepth = selectedDisplay.depth;
+   m_sdrWhitePoint = 1.f;
+   m_hdrHeadRoom = 1.f;
+   m_wcgDisplay = false;
+   m_wcgBackbuffer = false;
+   m_backBuffer = nullptr;
+
+   const int wnd_x = selectedDisplay.left + (m_screenwidth - m_width) / 2;
+   const int wnd_y = selectedDisplay.top + (m_screenheight - m_height) / 2;
+
+   uint32_t wnd_flags = SDL_WINDOW_BORDERLESS | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+   #if defined(_MSC_VER)
+      SDL_SetHint(SDL_HINT_FORCE_RAISEWINDOW, "1");
+   #endif
+   SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
+
+   SDL_PropertiesID props = SDL_CreateProperties();
+   SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, title.c_str());
+   SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, wnd_x);
+   SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, wnd_y);
+   SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, m_width);
+   SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, m_height);
+   SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_FLAGS_NUMBER, wnd_flags);
+   m_nwnd = SDL_CreateWindowWithProperties(props);
+   SDL_DestroyProperties(props);
+
+   props = SDL_GetWindowProperties(m_nwnd);
+   m_wcgDisplay = SDL_GetBooleanProperty(props, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
+   m_sdrWhitePoint = SDL_GetFloatProperty(props, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 1.0f);
+   m_hdrHeadRoom = SDL_GetFloatProperty(props, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0f);
+
+   SDL_GetWindowSizeInPixels(m_nwnd, &m_pixelWidth, &m_pixelHeight);
+
+   PLOGI << "Spectator window (" << m_width << 'x' << m_height << ") created on display " << selectedDisplay.displayName;
+}
+
 Window::Window(const int width, const int height)
    : m_windowId(VPXWindowId::VPXWINDOW_Playfield)
    , m_isVR(true)

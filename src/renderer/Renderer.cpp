@@ -17,6 +17,7 @@
 #include "renderer/RenderCommand.h"
 #include "renderer/RenderDevice.h"
 #include "renderer/VRDevice.h"
+#include <fstream>
 #include "renderer/trace.h"
 #include "ui/live/LiveUI.h"
 #include "utils/color.h"
@@ -374,6 +375,8 @@ Renderer::~Renderer()
    delete m_pMotionBlurBufferTexture;
    delete m_pOffscreenVRLeft;
    delete m_pOffscreenVRRight;
+   delete m_spectatorRT;
+   delete m_spectatorTonemapRT;
    for (int window = 0; window <= VPXWindowId::VPXWINDOW_Topper; window++)
       m_ancillaryWndHdrRT[window] = nullptr;
    #if defined(ENABLE_DX9) || defined(__OPENGLES__) || defined(__APPLE__) || (defined(__ANDROID__) && defined(ENABLE_XR))
@@ -1629,7 +1632,7 @@ void Renderer::RenderItem(IEditable* const editable, bool isNoBackdrop)
    if (m_mvpSpaceReference != spaceReference)
    {
       #if defined(ENABLE_XR)
-      if (m_stereo3D == STEREO_VR)
+      if (m_stereo3D == STEREO_VR && !m_spectatorPass) // spectator pass uses its own fixed camera, not the headset pose
          g_pplayer->m_vrDevice->UpdateVRPosition(spaceReference, m_mvp);
       else
       #endif
@@ -2799,6 +2802,53 @@ RenderTarget* Renderer::ApplyStereo(RenderTarget* renderedRT, RenderTarget* outp
             { -1.0f, -1.0f, 0.0f, static_cast<float>(x     ) / w, static_cast<float>(y + fh) / h },
             {  1.0f, -1.0f, 0.0f, static_cast<float>(x + fw) / w, static_cast<float>(y + fh) / h }
          };
+         // Render the fixed third-person camera in place of the mirrored-eye preview. This MUST be done
+         // here (inside the frame's render passes) so it is actually presented to the preview window;
+         // doing it after RenderFrame() does not get presented.
+         if (m_spectatorEnabled && m_spectatorSplit)
+         {
+            // Split preview: mirrored eye (first-person) in the left half, spectator (third-person) in the
+            // right half. Render the spectator to an offscreen half-width buffer first, then composite both
+            // quads into a single preview pass (single-pass keeps both halves; cross-pass writes don't).
+            const int pw = previewRT->GetWidth();
+            const int ph = previewRT->GetHeight();
+            RenderTarget* const specBuf = RenderSpectatorToBuffer(pw / 2, ph);
+            m_renderDevice->SetRenderTarget("VR Preview Split"s, previewRT, false);
+            m_renderDevice->Clear(clearType::TARGET | clearType::ZBUFFER, 0x00000000); // black background for letterbox bars
+
+            // Left half: mirrored eye, letterboxed to preserve the eye's aspect ratio (avoids squishing it
+            // into the tall half panel). The left panel spans NDC x[-1,0] (center -0.5, half-width 0.5).
+            const int eyeLayer = (m_vrPreview == VRPREVIEW_RIGHT) ? 1 : 0;
+            const float eyeAR = static_cast<float>(renderedRT->GetWidth()) / static_cast<float>(renderedRT->GetHeight());
+            const float halfPanelAR = static_cast<float>(pw / 2) / static_cast<float>(ph);
+            float exHalf = 0.5f; // NDC half-width of the eye quad within the left panel
+            float eyHalf = 1.0f; // NDC half-height of the eye quad
+            if (eyeAR >= halfPanelAR)
+               eyHalf = halfPanelAR / eyeAR;          // eye wider than panel -> fit width, bars top/bottom
+            else
+               exHalf = 0.5f * (eyeAR / halfPanelAR); // eye taller than panel -> fit height, bars left/right
+            const float ecx = -0.5f; // left panel center x
+            m_renderDevice->AddRenderTargetDependency(renderedRT);
+            m_renderDevice->m_FBShader->SetTechnique(SHADER_TECHNIQUE_fb_mirror);
+            m_renderDevice->m_FBShader->SetVector(SHADER_w_h_height, 1.f, 1.f, 1.f, 1.f);
+            m_renderDevice->m_FBShader->SetTexture(SHADER_tex_fb_unfiltered, renderedRT->GetColorSampler(), SamplerFilter::SF_BILINEAR);
+            m_renderDevice->m_FBShader->SetInt(SHADER_layer, eyeLayer);
+            const Vertex3D_TexelOnly leftVerts[4] =
+            {
+               { ecx - exHalf,  eyHalf, 0.f, 0.f, 0.f },
+               { ecx + exHalf,  eyHalf, 0.f, 1.f, 0.f },
+               { ecx - exHalf, -eyHalf, 0.f, 0.f, 1.f },
+               { ecx + exHalf, -eyHalf, 0.f, 1.f, 1.f }
+            };
+            m_renderDevice->DrawTexturedQuad(m_renderDevice->m_FBShader, leftVerts); // left half: mirrored eye
+            DrawSpectatorPresentQuad(specBuf, 0.f, 1.f); // right half: spectator (rendered at the half's aspect)
+         }
+         else if (m_spectatorEnabled)
+         {
+            RenderSpectatorView(m_renderDevice->m_outputWnd[1]);
+         }
+         else
+         {
          m_renderDevice->m_FBShader->SetTechnique(SHADER_TECHNIQUE_fb_mirror);
          m_renderDevice->m_FBShader->SetVector(SHADER_w_h_height, 1.f, 1.f, 1.f, 1.f);
          m_renderDevice->m_FBShader->SetTexture(SHADER_tex_fb_unfiltered, renderedRT->GetColorSampler(), SamplerFilter::SF_BILINEAR);
@@ -2817,6 +2867,7 @@ RenderTarget* Renderer::ApplyStereo(RenderTarget* renderedRT, RenderTarget* outp
             verts[1].x = verts[3].x = 1.f;
             m_renderDevice->m_FBShader->SetInt(SHADER_layer, 1);
             m_renderDevice->DrawTexturedQuad(m_renderDevice->m_FBShader, verts);
+         }
          }
 
          if (m_vrApplyColorKey)
@@ -3086,6 +3137,238 @@ void Renderer::RenderFrame()
 
    if (g_pplayer->GetProfilingMode() == PF_ENABLED)
       m_gpu_profiler.Timestamp(GTS_PostProcess);
+}
+
+void Renderer::ApplySpectatorPreset(int preset)
+{
+   // All presets use legacy auto-fit, which frames the whole table to the output aspect ratio.
+   // mLookAt here is the camera INCLINATION in degrees (0 = edge-on with the playfield, 90 = top-down).
+   m_spectatorView.mMode = VLM_LEGACY;
+   m_spectatorView.mViewX = 0.f;
+   m_spectatorView.mViewY = CMTOVPU(20.f);
+   m_spectatorView.mViewZ = CMTOVPU(70.f);
+   m_spectatorView.mViewportRotation = 0.f;
+   m_spectatorView.mViewHOfs = 0.f;
+   m_spectatorView.mViewVOfs = 0.f;
+   m_spectatorView.mSceneScaleX = 1.f;
+   m_spectatorView.mSceneScaleY = 1.f;
+   m_spectatorView.mSceneScaleZ = 1.f;
+   switch (preset)
+   {
+   default:
+   case 0: // Angled: standard third-person pinball view
+      m_spectatorView.mLookAt = 55.f;
+      m_spectatorView.mFOV = 40.f;
+      m_spectatorView.mLayback = 15.f;
+      break;
+   case 1: // Overhead: near top-down
+      m_spectatorView.mLookAt = 80.f;
+      m_spectatorView.mFOV = 45.f;
+      m_spectatorView.mLayback = 0.f;
+      break;
+   case 2: // Low: shallow, dramatic angle
+      m_spectatorView.mLookAt = 35.f;
+      m_spectatorView.mFOV = 42.f;
+      m_spectatorView.mLayback = 20.f;
+      break;
+   }
+}
+
+void Renderer::AdjustSpectatorCam(int inclSteps, int fovSteps, int panXSteps, int panYSteps, int distSteps)
+{
+   float incl = m_spectatorView.mLookAt + 2.f * static_cast<float>(inclSteps);
+   incl = incl < 5.f ? 5.f : incl > 89.f ? 89.f : incl;
+   m_spectatorView.mLookAt = incl;
+   float fov = m_spectatorView.mFOV + 2.f * static_cast<float>(fovSteps);
+   fov = fov < 10.f ? 10.f : fov > 120.f ? 120.f : fov;
+   m_spectatorView.mFOV = fov;
+   m_spectatorView.mViewX += CMTOVPU(2.f) * static_cast<float>(panXSteps);
+   m_spectatorView.mViewY += CMTOVPU(2.f) * static_cast<float>(panYSteps);
+   // Dolly the camera along its view axis (legacy fit distance = autoFit + mViewZ). At steep angles this
+   // is mostly height, which is what pulls the camera out of the VR room ceiling/floor.
+   float dist = m_spectatorView.mViewZ + CMTOVPU(5.f) * static_cast<float>(distSteps);
+   dist = dist < CMTOVPU(-60.f) ? CMTOVPU(-60.f) : dist > CMTOVPU(1500.f) ? CMTOVPU(1500.f) : dist;
+   m_spectatorView.mViewZ = dist;
+}
+
+void Renderer::SaveSpectatorCam(const string& filePath) const
+{
+   if (filePath.empty())
+      return;
+   std::ofstream f(filePath, std::ios::out | std::ios::trunc);
+   if (!f)
+      return;
+   f << "# Visual Pinball spectator camera (auto-generated)\n";
+   f << "preset=" << m_spectatorPreset << '\n';
+   f << "mode=" << static_cast<int>(m_spectatorView.mMode) << '\n';
+   f << "inclination=" << m_spectatorView.mLookAt << '\n';
+   f << "fov=" << m_spectatorView.mFOV << '\n';
+   f << "layback=" << m_spectatorView.mLayback << '\n';
+   f << "viewx=" << m_spectatorView.mViewX << '\n';
+   f << "viewy=" << m_spectatorView.mViewY << '\n';
+   f << "viewz=" << m_spectatorView.mViewZ << '\n';
+   f << "rotation=" << m_spectatorView.mViewportRotation << '\n';
+   f << "hofs=" << m_spectatorView.mViewHOfs << '\n';
+   f << "vofs=" << m_spectatorView.mViewVOfs << '\n';
+}
+
+bool Renderer::LoadSpectatorCam(const string& filePath)
+{
+   if (filePath.empty())
+      return false;
+   std::ifstream f(filePath);
+   if (!f)
+      return false;
+   string line;
+   while (std::getline(f, line))
+   {
+      if (line.empty() || line[0] == '#')
+         continue;
+      const size_t eq = line.find('=');
+      if (eq == string::npos)
+         continue;
+      const string key = line.substr(0, eq);
+      const string val = line.substr(eq + 1);
+      try
+      {
+         if (key == "preset") m_spectatorPreset = std::stoi(val);
+         else if (key == "mode") m_spectatorView.mMode = static_cast<ViewLayoutMode>(std::stoi(val));
+         else if (key == "inclination") m_spectatorView.mLookAt = std::stof(val);
+         else if (key == "fov") m_spectatorView.mFOV = std::stof(val);
+         else if (key == "layback") m_spectatorView.mLayback = std::stof(val);
+         else if (key == "viewx") m_spectatorView.mViewX = std::stof(val);
+         else if (key == "viewy") m_spectatorView.mViewY = std::stof(val);
+         else if (key == "viewz") m_spectatorView.mViewZ = std::stof(val);
+         else if (key == "rotation") m_spectatorView.mViewportRotation = std::stof(val);
+         else if (key == "hofs") m_spectatorView.mViewHOfs = std::stof(val);
+         else if (key == "vofs") m_spectatorView.mViewVOfs = std::stof(val);
+      }
+      catch (...) { } // ignore malformed lines
+   }
+   return true;
+}
+
+RenderTarget* Renderer::RenderSpectatorToBuffer(int w, int h)
+{
+   if (w <= 0 || h <= 0)
+      return nullptr;
+
+   // The active render device may be mono (desktop) or stereo (VR / 3D). The spectator scene must be
+   // rendered with the same eye count as the device, otherwise the per-eye shader matrices/instancing
+   // get out of sync. The result is tonemapped into a display-format buffer (layer 0 is later presented).
+   const bool deviceStereo = (m_mvp.m_nEyes == 2) && m_renderDevice->SupportLayeredRendering();
+   const SurfaceType rtType = deviceStereo ? SurfaceType::RT_STEREO : SurfaceType::RT_DEFAULT;
+
+   // Lazily (re)create the offscreen HDR scene target and the display-format tonemap target
+   if (m_spectatorRT == nullptr || m_spectatorRT->GetWidth() != w || m_spectatorRT->GetHeight() != h || m_spectatorRT->m_type != rtType)
+   {
+      delete m_spectatorRT;
+      m_spectatorRT = new RenderTarget(m_renderDevice, rtType, "SpectatorScene"s, w, h,
+         GetBackBufferTexture()->GetColorFormat(), true, 1, "Fatal Error: unable to create spectator render buffer!");
+      delete m_spectatorTonemapRT;
+      m_spectatorTonemapRT = nullptr;
+   }
+   if (m_spectatorTonemapRT == nullptr || m_spectatorTonemapRT->GetWidth() != w || m_spectatorTonemapRT->GetHeight() != h)
+   {
+      delete m_spectatorTonemapRT;
+      m_spectatorTonemapRT = new RenderTarget(m_renderDevice, rtType, "SpectatorTonemap"s, w, h,
+         colorFormat::RGBA8, false, 1, "Fatal Error: unable to create spectator tonemap buffer!");
+   }
+
+   // Save the renderer state we are about to override for the secondary view
+   // (ModelViewProj has a const m_nEyes, so it is not copy-assignable: use its Set() helper)
+   ModelViewProj savedMvp(m_mvp.m_nEyes);
+   savedMvp.Set(m_mvp);
+   const unsigned int savedMask = m_visibilityMask;
+   const unsigned int savedRenderMask = m_render_mask;
+   const bool savedNoBackdrop = m_noBackdrop;
+   const bool savedBloomOff = m_bloomOff;
+   const Vertex2D savedScreenOffset = m_screenOffset;
+   const Matrix3D savedPlayfieldView[2] = { m_playfieldView[0], m_playfieldView[1] };
+
+   // Build the spectator camera (independent of the player's head/cabinet camera). Both eyes share the
+   // same view (see ComputeMVP); for stereo we pass stereo=true so both eye projections are valid.
+   m_spectatorView.ComputeMVP(m_table, static_cast<float>(w) / static_cast<float>(h), deviceStereo, m_mvp);
+   m_mvpSpaceReference = PartGroupData::SpaceReference::SR_INHERIT; // force matrix update for parts
+   // Keep the session's visibility mask (set by RenderFrame): desktop -> desktop parts, VR -> VR parts.
+   m_noBackdrop = true;
+   m_bloomOff = true; // pure tonemap for the spectator output (no carried-over main-view bloom)
+   m_screenOffset = Vertex2D(0.f, 0.f); // no nudge shake on the spectator view
+
+   // Render the scene from the spectator camera into the offscreen HDR target
+   m_renderDevice->SetRenderTarget("Spectator Scene"s, m_spectatorRT);
+   m_renderDevice->Clear(clearType::TARGET | clearType::ZBUFFER, 0x00000000);
+
+   // Feed the spectator camera through m_playfieldView, which RenderItem uses as the base view for all
+   // space references, and enable m_spectatorPass so RenderItem does NOT override it with the head-tracked
+   // (VR) or main camera. This makes the fixed spectator camera actually take effect (view + projection).
+   for (unsigned int eye = 0; eye < m_mvp.m_nEyes; eye++)
+      m_playfieldView[eye] = m_mvp.GetView(eye);
+   m_spectatorPass = true;
+
+   UpdateBasicShaderMatrix();
+   UpdateBallShaderMatrix();
+   const int nEyes = m_renderDevice->m_nEyes;
+   Matrix3D matProj[2];
+   for (int eye = 0; eye < nEyes; eye++)
+      matProj[eye] = m_mvp.GetProj(eye);
+   m_renderDevice->m_basicShader->SetMatrix(SHADER_matProj, &matProj[0], nEyes);
+   m_renderDevice->m_ballShader->SetMatrix(SHADER_matProj, &matProj[0], nEyes);
+
+   m_render_mask = Renderer::DEFAULT;
+   DrawStatics();
+   DrawDynamics(false);
+
+   ApplyTonemapping(m_spectatorRT, m_spectatorTonemapRT);
+
+   // Restore the renderer state for the main view / next frame
+   m_spectatorPass = false;
+   m_playfieldView[0] = savedPlayfieldView[0];
+   m_playfieldView[1] = savedPlayfieldView[1];
+   m_mvp.Set(savedMvp);
+   m_visibilityMask = savedMask;
+   m_render_mask = savedRenderMask;
+   m_noBackdrop = savedNoBackdrop;
+   m_bloomOff = savedBloomOff;
+   m_screenOffset = savedScreenOffset;
+   m_mvpSpaceReference = PartGroupData::SpaceReference::SR_INHERIT;
+   MarkShaderDirty();
+   SetupShaders();
+
+   return m_spectatorTonemapRT;
+}
+
+void Renderer::DrawSpectatorPresentQuad(RenderTarget* buf, float ndcX0, float ndcX1)
+{
+   if (buf == nullptr)
+      return;
+   // fb_mirror is a straight textured-quad copy (same path the VR eye preview uses, which presents on the
+   // OpenXR swapchain where a BlitRenderTarget does not). Draws buf layer 0 into the [ndcX0,ndcX1] x-range.
+   m_renderDevice->AddRenderTargetDependency(buf);
+   m_renderDevice->m_FBShader->SetTechnique(SHADER_TECHNIQUE_fb_mirror);
+   m_renderDevice->m_FBShader->SetVector(SHADER_w_h_height, 1.f, 1.f, 1.f, 1.f);
+   m_renderDevice->m_FBShader->SetTexture(SHADER_tex_fb_unfiltered, buf->GetColorSampler(), SamplerFilter::SF_BILINEAR);
+   m_renderDevice->m_FBShader->SetInt(SHADER_layer, 0);
+   const Vertex3D_TexelOnly verts[4] =
+   {
+      { ndcX0,  1.f, 0.f, 0.f, 0.f },
+      { ndcX1,  1.f, 0.f, 1.f, 0.f },
+      { ndcX0, -1.f, 0.f, 0.f, 1.f },
+      { ndcX1, -1.f, 0.f, 1.f, 1.f }
+   };
+   m_renderDevice->DrawTexturedQuad(m_renderDevice->m_FBShader, verts);
+}
+
+void Renderer::RenderSpectatorView(VPX::Window* outWnd)
+{
+   if (outWnd == nullptr || outWnd->GetBackBuffer() == nullptr)
+      return;
+   RenderTarget* const outRT = outWnd->GetBackBuffer();
+   RenderTarget* const buf = RenderSpectatorToBuffer(outRT->GetWidth(), outRT->GetHeight());
+   if (buf == nullptr)
+      return;
+   m_renderDevice->SetRenderTarget("Spectator Present"s, outRT, false);
+   DrawSpectatorPresentQuad(buf, -1.f, 1.f);
 }
 
 

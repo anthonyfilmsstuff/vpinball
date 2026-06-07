@@ -392,6 +392,35 @@ Player::Player(PinTable *const table, const PlayMode playMode)
    }
    #endif
 
+   // Spectator / third-person window: a second live view of the playfield from a fixed, independent
+   // camera. Useful for streaming a stable shot while playing in VR, or a bystander screen on a
+   // cabinet. Currently enabled for non-VR BGFX sessions and rendered every frame (a full second
+   // scene render). See THIRDPERSON_DESIGN.md.
+   #if defined(ENABLE_BGFX)
+   m_renderer->ApplySpectatorPreset(m_renderer->m_spectatorPreset);
+   // Load this table's saved spectator camera, if any (overrides the preset). Adjust live with the arrow
+   // keys / [ ] / KP +-, save per table with F9, reset to preset with F4.
+   if (const string camFile = GetSpectatorCamFilePath(); !camFile.empty() && m_renderer->LoadSpectatorCam(camFile))
+      PLOGI << "Loaded per-table spectator camera from " << camFile;
+   if (m_vrDevice == nullptr && stereo3D == STEREO_OFF)
+   {
+      // Desktop (mono): dedicated borderless spectator window, on by default
+      m_spectatorWnd = new VPX::Window("Visual Pinball Spectator"s, 1280, 720);
+      m_renderer->m_renderDevice->AddWindow(m_spectatorWnd);
+      m_spectatorWnd->Show();
+      m_spectatorWnd->RaiseAndFocus();
+      PLOGI << "Spectator window enabled (toggle F7, cycle camera F8, throttle F6)";
+   }
+   else if (m_vrDevice != nullptr)
+   {
+      // VR: reuse the existing VR preview window (m_outputWnd[1]) for the fixed third-person view.
+      // On by default so the desktop preview shows the fixed camera (not the mirrored eye); press F7
+      // to switch back to the mirrored eye. The mirrored-eye preview is suppressed while enabled.
+      m_renderer->m_spectatorEnabled = true;
+      PLOGI << "VR third-person preview enabled (press F7 to switch back to the mirrored eye)";
+   }
+   #endif
+
    // Disable static prerendering for VR
    if (stereo3D == STEREO_VR)
       m_renderer->DisableStaticPrePass(true);
@@ -1053,6 +1082,9 @@ Player::~Player()
    LockForegroundWindow(false);
    delete m_playfieldWnd;
    m_playfieldWnd = nullptr;
+
+   delete m_spectatorWnd; // Backbuffer already freed by the render device dtor; here we free the OS window
+   m_spectatorWnd = nullptr;
 
    delete m_vrDevice;
    m_vrDevice = nullptr;
@@ -2082,6 +2114,11 @@ void Player::FramePacingGameLoop()
 
 extern void PrecompSplineTonemap(const float displayMaxLum, float out[6]);
 
+string Player::GetSpectatorCamFilePath() const
+{
+   return (m_ptable && !m_ptable->m_filename.empty()) ? (m_ptable->m_filename.string() + ".spectatorcam") : string();
+}
+
 void Player::PrepareFrame()
 {
    // Rendering outputs to m_renderDevice->GetBackBufferTexture(). If MSAA is used, it is resolved as part of the rendering (i.e. this surface is NOT the MSAA render surface but its resolved copy)
@@ -2140,6 +2177,13 @@ void Player::PrepareFrame()
 
    // Prepare main 3D scene frame, then apply screenspace transforms, including ancillary window rendering (MSAA, AO, AA, stereo, ball motion blur, tonemapping, dithering, bloom,...)
    m_renderer->RenderFrame();
+
+   // Desktop: render the optional secondary fixed-camera (spectator) view into its dedicated window,
+   // throttled to every (frameSkip+1) frames. (In VR the spectator is rendered inside RenderFrame's VR
+   // preview path instead, so that it gets presented to the preview window.)
+   if (m_spectatorWnd != nullptr && m_renderer->m_spectatorEnabled
+      && (m_overall_frames % (m_renderer->m_spectatorFrameSkip + 1)) == 0)
+      m_renderer->RenderSpectatorView(m_spectatorWnd);
 
    m_physics->ResetPerFrameStats();
 

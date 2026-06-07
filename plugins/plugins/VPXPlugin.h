@@ -68,6 +68,7 @@ typedef enum
    VPXWINDOW_ScoreView,
    VPXWINDOW_Topper,
    VPXWINDOW_VRPreview,
+   VPXWINDOW_Spectator, // Secondary fixed-camera live view (third-person spectator / streaming / cabinet bystander)
 } VPXWindowId;
 
 typedef enum

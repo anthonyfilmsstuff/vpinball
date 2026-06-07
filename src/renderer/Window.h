@@ -53,6 +53,7 @@ class Window final
 {
 public:
    Window(const string& title, const Settings& settings, VPXWindowId windowId); // OS Window
+   Window(const string& title, const int width, const int height); // Explicit-geometry borderless desktop window (spectator / third-person view)
    Window(const int width, const int height); // VR Output
    ~Window();
 

@@ -183,6 +183,9 @@ public:
 public:
    //VPX::RenderOutput& GetOutput(VPXWindowId window);
    VPX::Window* m_playfieldWnd = nullptr;
+   VPX::Window* m_spectatorWnd = nullptr; // Optional secondary fixed-camera live view (third-person / streaming / cabinet bystander)
+   // Per-table sidecar file storing the user-adjusted spectator camera (empty if the table is not saved to disk)
+   string GetSpectatorCamFilePath() const;
    VPX::RenderOutput m_backglassOutput;
    VPX::RenderOutput m_scoreViewOutput;
    VPX::RenderOutput m_topperOutput;
