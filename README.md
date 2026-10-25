@@ -1,3 +1,20 @@
+# 🎥 Visual Pinball X — with Spectator View
+
+> **This is my personal fork of Visual Pinball X.** I added a **live third-person "spectator" camera** —
+> a steady, separate view of the playfield you can stream (OBS) or show to bystanders while you play in
+> VR, so your head-tracked movement doesn't make everyone watching seasick. Works on desktop too, and
+> the DMD/score shows up in it.
+>
+> 👉 **[What it is, how to use it, and the controls → `SPECTATOR_VIEW.md`](SPECTATOR_VIEW.md)** &nbsp;·&nbsp; 🎮 **[Controls cheat-sheet → `CONTROLS.md`](CONTROLS.md)**
+>
+> 🛠️ Full transparency: I'm not a C++ dev — this is a **vibe-coded passion project**, built by pairing
+> with AI (Claude). It's tested and works great for me, but expect rough edges, and PRs/help are very
+> welcome. — Anthony ([@anthonyfilmsstuff](https://github.com/anthonyfilmsstuff))
+
+---
+
+*(Everything below is the original Visual Pinball X README.)*
+
 # Visual Pinball
 
 *An open source pinball table editor and simulator.*

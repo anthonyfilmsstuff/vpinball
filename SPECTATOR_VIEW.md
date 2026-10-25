@@ -1,175 +1,181 @@
-# Visual Pinball X — Third-Person Spectator View
+# Spectator View for Visual Pinball X 🎥🎰
 
-> A fork of [Visual Pinball X](https://github.com/vpinball/vpinball) that adds a **second, fixed-camera
-> live view of the playfield** — a stable "broadcast" shot you can stream or show to bystanders while
-> you play, instead of the nauseating head-tracked view in VR.
+Hey — I'm Anthony ([@anthonyfilmsstuff](https://github.com/anthonyfilmsstuff)). This is a fork of
+[Visual Pinball X](https://github.com/vpinball/vpinball) that adds something I really wanted and
+couldn't find: a **second, steady camera view of the playfield** that runs *at the same time* as your
+normal game.
 
-The player keeps their normal view (VR headset or the cabinet playfield window). At the same time, a
-**separate, steady camera** renders the same live game to its own window — perfect for streaming to OBS
-or for people watching over your shoulder. The DMD/score is visible in the spectator view too.
+The itch I was scratching: I stream pinball in VR, and the head-tracked view is great to *play* but
+rough to *watch* — every little head movement makes viewers seasick. So now I can keep my VR view in
+the headset while a calm, fixed "broadcast" shot of the table goes to a separate window I point OBS at.
+Works on a flat desktop too (you get a dedicated spectator window), and the DMD/score shows up in it.
+
+> ### 🛠️ Heads up: this is a vibe-coded passion project
+> Full transparency — **I'm not a C++ developer.** I built this by pairing with Claude (Anthropic's
+> AI), one step at a time, driven purely by wanting this feature to exist. It's been tested and it
+> works really well for me, but it's a labor of love, not a battle-hardened engine contribution.
+> **Expect some rough edges**, and if you're an actual graphics/engine dev, I would *love* the help
+> making it better. 🙏
+
+The virtual pinball community on Reddit got me way more excited about this than I expected, so here it
+is — come kick the tires.
 
 ---
 
-## 📺 Demo
+## ✨ What it does
 
-*(add a screenshot / short clip here — a side-by-side of your headset view and the spectator window is ideal)*
-
----
-
-## ✨ Features
-
-- **Independent fixed camera** — a stable third-person shot, completely separate from the player's
-  head/cabinet camera.
-- **Works in VR and on desktop**
-  - **VR:** renders into the existing VR preview window (replacing the mirrored eye).
-  - **Desktop:** opens its own dedicated spectator window.
-- **Split mode (VR):** show the **mirrored first-person eye on the left, beside the steady camera on
-  the right**, in one window — great for streams that want both.
-- **Three camera presets** — Angled, Overhead, Low — cycle live.
-- **Full live framing** — pan, tilt, zoom (FOV), and camera distance, adjusted on the fly.
-- **Per-table memory** — save a camera per table; it auto-loads next time you play that table.
-- **Performance throttle** — render the spectator every frame, every 2nd, or every 3rd frame, so the
-  player's view always takes priority.
+- **A steady, independent camera** — a fixed third-person shot that's totally separate from your
+  head/cabinet view.
+- **VR and desktop** — in VR it takes over the preview window; on desktop it opens its own window.
+- **Split view (VR)** — show your **first-person eye on the left and the steady camera on the right**,
+  in one window. Great for streams that want both.
+- **Three camera angles** — Angled, Overhead, Low — flip between them live.
+- **Frame it however you like** — pan, tilt, zoom, and move the camera closer/farther on the fly.
+- **It remembers per table** — set up a shot, save it, and that table loads with your shot next time.
+- **A throttle** — render the spectator every frame, or every 2nd/3rd, so your headset always gets
+  priority.
 
 ---
 
 ## 🎮 Controls
 
-All keys are active while a table is running and the spectator view is available. See
-[`CONTROLS.md`](CONTROLS.md) for a printable/Discord-pasteable version.
+Everything's live while a table is running. (Printable/Discord-friendly version in
+[`CONTROLS.md`](CONTROLS.md).)
 
-| Key | Action |
-|-----|--------|
+### View modes
+| Key | What it does |
+|-----|--------------|
 | **F7** | Toggle the spectator view (in VR: spectator ⇄ mirrored eye) |
-| **F5** | Split mode (VR): mirrored eye **left** + spectator camera **right** |
-| **F8** | Cycle camera preset — Angled → Overhead → Low |
-| **F6** | Cycle update rate — every frame → every 2nd → every 3rd |
-| **F4** | Reset camera to the current preset |
-| **F9** | **Save** the camera for the current table |
-| **↑ ↓ ← →** | Pan the camera (up / down / left / right) |
-| **`[` / `]`** | Tilt the camera angle (shallower / steeper) |
-| **KP `+` / `−`** | Zoom in / out (field of view) |
-| **`,` / `.`** | Camera distance — move closer / farther |
+| **F5** | Split view (VR): mirrored eye **left** + spectator camera **right** |
+| **F6** | Cycle the update rate — every frame → 2nd → 3rd |
 
-> The adjust keys (arrows, `[ ]`, `, .`, numpad `+ −`) are unbound by default in VPX, so they should not
-> clash with gameplay. If you've custom-bound any of them, all the new actions are rebindable in VPX's
-> key settings under the **"Spectator …"** entries.
+### Perspective & view — frame the shot
+These are the keys that actually move and aim the camera:
+
+| Key | What it does |
+|-----|--------------|
+| **F8** | Cycle the camera angle/preset — Angled → Overhead → Low |
+| **↑ ↓ ← →** | Pan the camera (up / down / left / right) |
+| **`[` / `]`** | Tilt the angle (shallower / steeper) |
+| **KP `+` / `−`** | Zoom in / out (field of view) |
+| **`,` / `.`** | Move the camera closer / farther (distance/dolly) |
+| **F4** | Reset the perspective back to the current preset |
+
+### Save
+| Key | What it does |
+|-----|--------------|
+| **F9** | Save the camera for this table (auto-loads next time you play it) |
+
+> The perspective/framing keys are unbound by default in VPX, so they shouldn't fight your gameplay
+> keys. If you *have* rebound any of them, all the new actions show up in VPX's key settings under
+> **"Spectator …"**.
 
 ---
 
-## 🚀 Quick start (for testers)
+## 🚀 Trying it out (testers, this is you)
 
-> ⚠️ **Experimental build.** Keep your existing Visual Pinball install intact and run this one
-> **separately** — don't overwrite your normal setup.
+> ⚠️ **This is an experimental build — please keep your normal Visual Pinball install separate and
+> don't overwrite it.** Run this one on its own.
 
-1. Download the build (the whole folder — the `.exe` needs its DLLs and `assets` to run).
-2. Unzip it somewhere of its own.
-3. Windows may show a **"Windows protected your PC / unknown publisher"** warning, because this build
-   isn't code-signed. That's expected for a community build — choose **More info → Run anyway** if you
-   trust the source.
-4. Launch a table:
+1. Grab the build (the whole folder — the `.exe` needs its DLLs and `assets` next to it).
+2. Unzip it somewhere by itself.
+3. Windows will probably throw a **"unknown publisher"** warning, because I haven't code-signed it —
+   that's normal for a community build. **More info → Run anyway** if you trust it.
+4. Fire up a table (double-click the exe to browse, or launch straight in):
    ```
    VPinballX_BGFX64.exe -play "C:\path\to\your\table.vpx"
    ```
-5. Press the spectator keys above to frame it, then **F9** to remember it for that table.
+5. Frame your shot with the keys above, hit **F9** to save it for that table, and you're set.
 
-**Capturing in OBS:** add a **Window Capture** source and pick the **`Visual Pinball VR Preview`** window
-(or the **`Visual Pinball Spectator`** window on desktop). If the capture is black, switch the source's
-**Capture Method** to **Windows Graphics Capture (WGC)**.
+**OBS:** add a **Window Capture** and grab the **`Visual Pinball VR Preview`** window (or
+**`Visual Pinball Spectator`** on desktop). If it's black, switch the capture method to **Windows
+Graphics Capture (WGC)**. If you're on an AMD card like me, use the GPU's hardware encoder (AMF, AV1 is
+great) so encoding doesn't eat your frame budget.
 
 ---
 
 ## 💾 Per-table cameras
 
-When you press **F9**, the current camera is saved to a small text file named
-`<your-table>.vpx.spectatorcam`, **right next to that table's `.vpx`**. The next time you play that
-table, it loads automatically. Each table remembers its own shot; delete the file to forget it.
+Hit **F9** and I save your camera to a little text file called `<your-table>.vpx.spectatorcam`, right
+next to that table's `.vpx`. Next time you play it, your shot loads automatically. Every table keeps
+its own angle (they all need different framing). Delete the file to forget it.
 
 ---
 
-## ⚙️ Performance
+## ⚙️ Performance & recommended hardware
 
-The spectator is a **second render of the scene** each frame (it deliberately skips the heavy bloom /
-ambient-occlusion / reflection passes and renders at the preview window's resolution). Rough cost when
-running **every frame**: on the order of **+20–40% GPU in VR**, more on desktop, negligible CPU and a few
-MB of video memory. The exact figure depends on the table and your resolution.
+The spectator is a **second render of the table** each frame — so it costs real GPU, though it skips the
+heavy bloom/reflection passes and renders at the preview resolution. Ballpark when it's running every
+frame: **roughly +20–40% GPU in VR** (more on desktop), tiny on CPU/VRAM. The **F6 throttle** scales
+that down, and your headset always comes first.
 
-- Use **F6** to throttle (every 2nd/3rd frame) on demanding tables — it scales the cost down roughly
-  linearly.
-- To measure it on your own hardware: watch your frame time/GPU use and toggle the spectator with **F7**.
+Rough tiers (it rides on top of whatever you already need for VPX VR):
 
----
+| Tier | GPU | Notes |
+|------|-----|-------|
+| **Minimum** | RTX 3060 Ti / RX 6700 XT (8 GB) | Spectator **throttled** (F6), ~720p, lighter tables |
+| **Recommended** | RTX 4070 / RX 7800 XT (12 GB) | Every-frame, 1080p, most tables |
+| **High-end** | RTX 4080/4090 or RX 7900 XT/XTX (16–24 GB) | Every-frame on heavy tables *while streaming* |
 
-## 🛠️ Building from source
-
-This fork targets the **BGFX backend with OpenXR**, built on **Windows x64**. (The change is small and
-self-contained; see *How it works* below.)
-
-**Prerequisites**
-- Windows, [Git](https://git-scm.com/), and **Visual Studio 2022** with the **"Desktop development with
-  C++"** workload.
-- The prebuilt third-party dependencies (bgfx, SDL3, FreeImage, FFmpeg, OpenXR, etc.).
-
-**Steps** (summary — see upstream [`make/README.md`](make/README.md) for full details)
-1. Get the prebuilt third-party deps and extract them into `third-party/` (download the
-   `*-third-party-windows-x64-Release.zip` artifact from a recent
-   [vpinball Actions run](https://github.com/vpinball/vpinball/actions)).
-2. Generate the Visual Studio solution: run `make/create_vs_solution.bat` and choose **2022**
-   (it writes the solution to `.build/vsproject/`).
-3. Build the **`vpx`** project, configuration **`Release_BGFX`**, platform **`x64`** (Visual Studio, or
-   MSBuild from a developer prompt).
-4. The result is `.build/bin/vpx/Release_BGFX-x64/VPinballX_BGFX64.exe`.
+For reference, I run it on a **Ryzen 9 7950X3D / RX 7900 XTX / 64 GB** and it eats everything I throw at
+it with room to spare for OBS.
 
 ---
 
-## 🔍 How it works (short version)
+## 🔧 Building it yourself
 
-Vanilla VPX draws the table **once** per frame from the player's camera. This fork taps into that same
-pipeline and, after the main view is drawn, sets up an **independent camera**, **draws the same parts a
-second time** into its own buffer, tone-maps it, and presents it to a second window. It reuses VPX's
-existing camera math, GPU layer, headset integration, and table parts untouched — the whole feature is
-~500 lines across 8 files.
+Targets the **BGFX backend + OpenXR**, built on **Windows x64**. (See upstream
+[`make/README.md`](make/README.md) for the full dependency setup — mine was the standard VS 2022
+"Desktop development with C++" workload plus the prebuilt third-party deps.)
 
-The two non-obvious VR details that took the most work: VPX normally re-derives the view from the
-**headset pose** per object (so the fixed camera has to explicitly opt out of that), and the OpenXR
-preview window only accepts an image drawn **in-frame via a textured-quad draw** (a direct buffer copy
-doesn't get presented).
+Quick version:
+1. Get the prebuilt third-party deps into `third-party/` (the `*-third-party-windows-x64-Release.zip`
+   artifact from a recent [vpinball Actions run](https://github.com/vpinball/vpinball/actions)).
+2. Generate the VS solution: run `make/create_vs_solution.bat`, pick **2022**.
+3. Build the **`vpx`** project, **`Release_BGFX` / `x64`**.
+4. Output lands at `.build/bin/vpx/Release_BGFX-x64/VPinballX_BGFX64.exe`.
+
+---
+
+## 🔍 How it works (the short, honest version)
+
+Vanilla VPX draws the table **once** a frame from your camera. This fork hooks into that same flow and,
+after your main view is drawn, sets up a **separate camera**, **draws the table a second time** into its
+own buffer, and shows it in another window. It reuses VPX's existing camera math, GPU layer, and headset
+integration — the whole thing is about **~500 lines across 8 files**. The fiddly VR bits (keeping the
+fixed camera from snapping to your head, and getting the image to actually show in the OpenXR preview
+window) were most of the adventure.
 
 Files touched: `plugins/plugins/VPXPlugin.h`, `src/renderer/{Renderer,Window}.{cpp,h}`,
 `src/core/player.{cpp,h}`, `src/input/InputManager.cpp`.
 
 ---
 
-## 📋 Status & known limitations
+## 📋 Status & known limits
 
-- Built and tested on the **BGFX + OpenXR + Windows x64** path. Other backends (OpenGL, DX9) and
-  platforms (macOS, Linux, standalone/mobile) are **not** wired up.
-- Desktop spectator window is enabled for **mono** (non-stereo) sessions; 3D-TV/anaglyph desktop stereo
-  is not covered.
-- The mirrored-eye half of split mode is letterboxed to preserve aspect; the spectator half fills its
-  panel.
-- This is an **experimental community build**, not an official VPX release.
+- Built and tested on **BGFX + OpenXR + Windows x64**. Other backends (OpenGL, DX9) and platforms
+  (macOS, Linux, standalone/mobile) aren't wired up.
+- Desktop spectator window is for **mono** (non-stereo) sessions.
+- It's an **experimental community build**, not an official VPX release.
+- Again: **vibe-coded, rough edges likely.** That's where you come in. 😄
 
 ---
 
-## 🤝 Contributing & feedback
+## 🤝 Want to help?
 
-Bug reports, tables that frame oddly, and performance numbers are all very welcome — please include your
-**table name, VR headset/runtime, what you did, what happened, and a screenshot or short clip**.
+Testing, odd framing on specific tables, performance numbers — all super welcome. Please include your
+**table, VR headset, what you did, what happened, and a screenshot or short clip.**
 
-Ideas for contributors (help wanted): reuse the cached static geometry for the spectator to cut GPU
-cost, an in-game settings panel for the camera, more split layouts (top/bottom, swap sides), and
-extending support to other backends/platforms.
+If you write code, some things I'd genuinely love help with: reusing cached static geometry to cut the
+GPU cost, an in-game settings panel for the camera, more split layouts, and support for the other
+backends/platforms.
 
 ---
 
-## 📜 License
+## 📜 License & credits
 
-This is a fork of Visual Pinball X and is licensed under the **GPLv3**, the same as upstream. See
-[`LICENSE`](LICENSE). The corresponding source is this repository.
+This is a fork of Visual Pinball X, under the **GPLv3**, same as upstream — see [`LICENSE`](LICENSE).
+Huge thanks to the [Visual Pinball X](https://github.com/vpinball/vpinball) team; this is built entirely
+on top of their incredible work. I just added one camera. 🙂
 
-## 🙏 Credits
-
-- The [Visual Pinball X](https://github.com/vpinball/vpinball) project and its contributors — this builds
-  directly on their work.
-- Spectator-view feature: *(your name/handle here)*.
+— Anthony ([@anthonyfilmsstuff](https://github.com/anthonyfilmsstuff))
